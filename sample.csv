@@ -1,0 +1,6 @@
+﻿Asset,Value,Return,Sector,PE,RevenueGrowth,ROE
+AAPL,15000,0.12,Tech,28,0.08,0.25
+MSFT,12000,0.1,Tech,30,0.1,0.3
+JNJ,8000,0.06,Health,18,0.04,0.2
+XOM,6000,0.04,Energy,14,0.03,0.18
+VOO,20000,0.08,Index,22,0.06,0.22

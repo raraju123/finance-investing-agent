@@ -1,0 +1,2 @@
+def resolve_conflict(weighted_vote_result, regime):
+    return weighted_vote_result["consensus"]

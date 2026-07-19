@@ -101,21 +101,34 @@ def compute_risk_metrics(df):
     }
     return metrics
 
-# ---------- LIVE MARKET DATA ----------
+# ---------- TICKER MAPPING ----------
+ticker_map = {
+    "401k": "VOO",
+    "ROTH IRA": "QQQ",
+    "BROKERAGE": "SPY",
+    "CRYPTO": "BTC-USD",
+    # Add more mappings if needed
+}
 
+# ---------- LIVE MARKET DATA ----------
 def fetch_live_market_data(df):
-    tickers = df["Asset"].dropna().tolist()
     market_data = {}
 
-    for t in tickers:
+    for asset in df["Asset"]:
+        if asset not in ticker_map:
+            continue  # skip non-ticker assets
+
+        ticker = ticker_map[asset]
+
         try:
-            info = yf.Ticker(t).history(period="1y")
+            info = yf.Ticker(ticker).history(period="1y")
             if len(info) == 0:
                 continue
 
             returns = info["Close"].pct_change().dropna()
 
-            market_data[t] = {
+            market_data[asset] = {
+                "ticker": ticker,
                 "live_price": float(info["Close"].iloc[-1]),
                 "annual_return": float(returns.mean() * 252),
                 "annual_volatility": float(returns.std() * np.sqrt(252)),
@@ -126,28 +139,20 @@ def fetch_live_market_data(df):
     return market_data
 
 # ---------- PORTFOLIO OPTIMIZATION (MPT) ----------
-
 def optimize_portfolio(df, market_data):
-    tickers = list(market_data.keys())
-    if len(tickers) < 2:
-        return {"info": "Need at least 2 tickers for optimization"}
+    if len(market_data) < 2:
+        return {"info": "Need at least 2 mapped tickers for optimization"}
 
-    returns = []
-    vols = []
-    for t in tickers:
-        returns.append(market_data[t]["annual_return"])
-        vols.append(market_data[t]["annual_volatility"])
+    assets = list(market_data.keys())
+    returns = np.array([market_data[a]["annual_return"] for a in assets])
+    vols = np.array([market_data[a]["annual_volatility"] for a in assets])
 
-    returns = np.array(returns)
-    vols = np.array(vols)
-
-    # Random weight simulation
     sims = 5000
     best_sharpe = -999
     best_weights = None
 
     for _ in range(sims):
-        w = np.random.random(len(tickers))
+        w = np.random.random(len(assets))
         w /= w.sum()
 
         portfolio_return = np.sum(w * returns)
@@ -159,15 +164,14 @@ def optimize_portfolio(df, market_data):
             best_weights = w
 
     optimized = {
-        "tickers": tickers,
-        "weights": {tickers[i]: float(best_weights[i]) for i in range(len(tickers))},
+        "assets": assets,
+        "weights": {assets[i]: float(best_weights[i]) for i in range(len(assets))},
         "optimized_sharpe": float(best_sharpe),
     }
 
     return optimized
 
 # ---------- CASHFLOW INSIGHTS ----------
-
 def compute_cashflow(df):
     if not {"Type", "Amount", "Date"}.issubset(df.columns):
         return {"info": "Cashflow columns (Type, Amount, Date) not present"}
@@ -198,7 +202,6 @@ def compute_cashflow(df):
     }
 
 # ---------- CHARTS ----------
-
 def generate_charts(df):
     charts = []
 
@@ -224,7 +227,6 @@ def generate_charts(df):
     return charts
 
 # ---------- DASHBOARD ----------
-
 def build_dashboard(df, validation_issues, portfolio_summary, risk_metrics, cashflow, charts, market_data, optimization):
     return {
         "validation": validation_issues,
@@ -237,7 +239,6 @@ def build_dashboard(df, validation_issues, portfolio_summary, risk_metrics, cash
     }
 
 # ---------- MAIN ----------
-
 def main():
     print("📊 Python Financial Agent Starting...")
     df, load_error = load_data()

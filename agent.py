@@ -57,8 +57,6 @@ def validate_data(df):
 # ---------- PORTFOLIO SUMMARY ----------
 
 def analyze_portfolio(df):
-    if not {"Asset", "Value", "Return"}.issubset(df.columns):
-        return {"error": "Missing required columns for portfolio analysis"}
     total_value = float(df["Value"].sum())
     avg_return = float(df["Return"].mean())
     max_row = df.loc[df["Value"].idxmax()]
@@ -73,8 +71,6 @@ def analyze_portfolio(df):
 # ---------- RISK METRICS ----------
 
 def compute_risk_metrics(df):
-    if "Return" not in df.columns:
-        return {"error": "Return column missing for risk metrics"}
     returns = df["Return"].astype(float)
     volatility = float(returns.std())
     sharpe = float(returns.mean() / (returns.std() + 1e-9))
@@ -83,35 +79,31 @@ def compute_risk_metrics(df):
         "sharpe_ratio": sharpe,
     }
 
-# ---------- TICKER MAPPING ----------
+# ---------- AUTO-DETECT TICKERS ----------
 
-ticker_map = {
-    "spcx": "SPCX",
-    "qqqq": "QQQQ",
-    "schd": "SCHD",
-    "bac": "BAC",
-    "cbrs": "CBRS",
-    "voo": "VOO",
-}
+def detect_valid_tickers(df):
+    tickers = []
+    for asset in df["Asset"]:
+        try:
+            info = yf.Ticker(asset).history(period="1mo")
+            if len(info) > 0:
+                tickers.append(asset)
+        except Exception:
+            continue
+    return tickers
 
 # ---------- LIVE MARKET DATA ----------
 
-def fetch_live_market_data(df):
+def fetch_live_market_data(tickers):
     market_data = {}
-    if "Asset" not in df.columns:
-        return market_data
-    for asset in df["Asset"]:
-        asset_lower = str(asset).lower()
-        if asset_lower not in ticker_map:
-            continue
-        ticker = ticker_map[asset_lower]
+    for t in tickers:
         try:
-            info = yf.Ticker(ticker).history(period="1y")
+            info = yf.Ticker(t).history(period="1y")
             if len(info) == 0:
                 continue
             returns = info["Close"].pct_change().dropna()
-            market_data[asset] = {
-                "ticker": ticker,
+            market_data[t] = {
+                "ticker": t,
                 "live_price": float(info["Close"].iloc[-1]),
                 "annual_return": float(returns.mean() * 252),
                 "annual_volatility": float(returns.std() * np.sqrt(252)),
@@ -122,9 +114,9 @@ def fetch_live_market_data(df):
 
 # ---------- PORTFOLIO OPTIMIZATION (MPT) ----------
 
-def optimize_portfolio(df, market_data):
+def optimize_portfolio(market_data):
     if len(market_data) < 2:
-        return {"info": "Need at least 2 mapped tickers for optimization"}
+        return {"info": "Need at least 2 valid tickers for optimization"}
     assets = list(market_data.keys())
     returns = np.array([market_data[a]["annual_return"] for a in assets])
     vols = np.array([market_data[a]["annual_volatility"] for a in assets])
@@ -146,94 +138,48 @@ def optimize_portfolio(df, market_data):
         "optimized_sharpe": float(best_sharpe),
     }
 
-# ---------- CASHFLOW INSIGHTS ----------
-
-def compute_cashflow(df):
-    if not {"Type", "Amount", "Date"}.issubset(df.columns):
-        return {"info": "Cashflow columns (Type, Amount, Date) not present"}
-    cf = df.copy()
-    cf["Date"] = pd.to_datetime(cf["Date"], errors="coerce")
-    cf["Month"] = cf["Date"].dt.to_period("M")
-    income = cf[cf["Type"] == "Income"].groupby("Month")["Amount"].sum()
-    expenses = cf[cf["Type"] == "Expense"].groupby("Month")["Amount"].sum()
-    monthly = []
-    for m in sorted(set(income.index) | set(expenses.index)):
-        inc = float(income.get(m, 0.0))
-        exp = float(expenses.get(m, 0.0))
-        monthly.append({
-            "month": str(m),
-            "income": inc,
-            "expenses": exp,
-            "savings": inc - exp,
-        })
-    return {
-        "monthly_cashflow": monthly,
-        "savings_rate_overall": float(
-            (income.sum() - expenses.sum()) / (income.sum() + 1e-9)
-        ),
-    }
-
 # ---------- CHARTS ----------
 
 def generate_charts(df):
     charts = []
-    if {"Asset", "Value"}.issubset(df.columns):
-        plt.figure(figsize=(8, 4))
-        sns.barplot(x="Asset", y="Value", data=df)
-        plt.xticks(rotation=45, ha="right")
-        plt.tight_layout()
-        fname = "chart_asset_values.png"
-        plt.savefig(fname)
-        plt.close()
-        charts.append({"type": "asset_values", "file": fname})
-    if "Return" in df.columns:
-        plt.figure(figsize=(6, 4))
-        sns.histplot(df["Return"], kde=True)
-        plt.tight_layout()
-        fname = "chart_return_distribution.png"
-        plt.savefig(fname)
-        plt.close()
-        charts.append({"type": "return_distribution", "file": fname})
+    plt.figure(figsize=(8, 4))
+    sns.barplot(x="Asset", y="Value", data=df)
+    plt.xticks(rotation=45, ha="right")
+    plt.tight_layout()
+    plt.savefig("chart_asset_values.png")
+    plt.close()
+    charts.append({"type": "asset_values", "file": "chart_asset_values.png"})
+    plt.figure(figsize=(6, 4))
+    sns.histplot(df["Return"], kde=True)
+    plt.tight_layout()
+    plt.savefig("chart_return_distribution.png")
+    plt.close()
+    charts.append({"type": "return_distribution", "file": "chart_return_distribution.png"})
     return charts
-
-# ---------- DASHBOARD ----------
-
-def build_dashboard(df, validation_issues, portfolio_summary, risk_metrics, cashflow, charts, market_data, optimization):
-    return {
-        "validation": validation_issues,
-        "portfolio_summary": portfolio_summary,
-        "risk_metrics": risk_metrics,
-        "cashflow": cashflow,
-        "charts": charts,
-        "market_data": market_data,
-        "optimization": optimization,
-    }
 
 # ---------- MAIN ----------
 
 def main():
     print("📊 Python Financial Agent Starting...")
     df, load_error = load_data()
-    if load_error is not None:
+    if load_error:
         print(json.dumps(load_error, indent=2))
         return
-    validation_issues = validate_data(df)
-    portfolio_summary = analyze_portfolio(df)
-    risk_metrics = compute_risk_metrics(df)
-    cashflow = compute_cashflow(df)
+    validation = validate_data(df)
+    summary = analyze_portfolio(df)
+    risk = compute_risk_metrics(df)
     charts = generate_charts(df)
-    market_data = fetch_live_market_data(df)
-    optimization = optimize_portfolio(df, market_data)
-    dashboard = build_dashboard(
-        df,
-        validation_issues,
-        portfolio_summary,
-        risk_metrics,
-        cashflow,
-        charts,
-        market_data,
-        optimization,
-    )
+    tickers = detect_valid_tickers(df)
+    market_data = fetch_live_market_data(tickers)
+    optimization = optimize_portfolio(market_data)
+    dashboard = {
+        "validation": validation,
+        "portfolio_summary": summary,
+        "risk_metrics": risk,
+        "charts": charts,
+        "market_data": market_data,
+        "optimization": optimization,
+    }
     print(json.dumps(dashboard, indent=2))
 
 if __name__ == "__main__":

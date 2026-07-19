@@ -79,7 +79,7 @@ def compute_risk_metrics(df):
         "sharpe_ratio": sharpe,
     }
 
-# ---------- AUTO-DETECT TICKERS ----------
+# ---------- AUTO-DETECT VALID TICKERS ----------
 
 def detect_valid_tickers(df):
     tickers = []
